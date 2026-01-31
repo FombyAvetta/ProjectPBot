@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openclaw:latest
+    container_name: openclaw-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-18789}:18789"
+    volumes:
+      - ./data:/data
+      - ./logs:/logs
+      - ./config:/config
+    environment:
+      # Claude API Configuration
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+
+      # LLM Provider
+      - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama2}
+
+      # Gateway Configuration
+      - GATEWAY_PORT=18789
+      - GATEWAY_HOST=0.0.0.0
+      - DATA_DIR=/data
+      - LOGS_DIR=/logs
+
+      # Telegram Configuration
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_ENABLED=${TELEGRAM_ENABLED:-false}
+
+      # Discord Configuration
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+      - DISCORD_ENABLED=${DISCORD_ENABLED:-false}
+
+      # Security
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+
+      # NVIDIA/CUDA (for Jetson)
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+
+    runtime: nvidia
+
+    networks:
+      - openclaw-network
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18789/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Ollama service for local LLM
+  # Uncomment if you want to run Ollama locally on Jetson
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: openclaw-ollama
+  #   restart: unless-stopped
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+  #   runtime: nvidia
+  #   networks:
+  #     - openclaw-network
+
+networks:
+  openclaw-network:
+    driver: bridge
+
+volumes:
+  ollama-data:
+    driver: local
