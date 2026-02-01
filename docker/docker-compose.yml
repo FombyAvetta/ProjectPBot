@@ -23,6 +23,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama2}
+      - QWEN3_HOST=${QWEN3_HOST:-http://qwen3-server:8080}
 
       # Gateway Configuration
       - GATEWAY_PORT=18789
@@ -59,6 +60,63 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Qwen3 4B Local LLM Service (Optional - Profile Enabled)
+  # Enable with: QWEN3_ENABLED=true in .env
+  # Or: docker compose --profile qwen3 up -d
+  qwen3-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.qwen3
+    image: openclaw-qwen3:latest
+    container_name: openclaw-qwen3
+    restart: unless-stopped
+    profiles:
+      - qwen3
+    ports:
+      - "8080:8080"  # Internal API port (OpenAI-compatible)
+    volumes:
+      - ./models:/models
+      - ./logs:/app/logs
+    environment:
+      # Model Configuration
+      - MODEL_PATH=${QWEN3_MODEL_PATH:-/models/Qwen3-4B-Q4_K_M.gguf}
+      - CONTEXT_LENGTH=${QWEN3_CONTEXT_LENGTH:-2048}
+      - GPU_LAYERS=${QWEN3_GPU_LAYERS:-32}
+      - BATCH_SIZE=${QWEN3_BATCH_SIZE:-512}
+      - THREADS=${QWEN3_THREADS:-4}
+      - PARALLEL_REQUESTS=${QWEN3_PARALLEL_REQUESTS:-1}
+
+      # Server Configuration
+      - HOST=0.0.0.0
+      - PORT=8080
+      - TIMEOUT=${QWEN3_TIMEOUT:-600}
+
+      # NVIDIA/CUDA
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+
+    runtime: nvidia
+
+    # Memory limit for safety (Jetson Nano 8GB)
+    mem_limit: ${QWEN3_MEMORY_LIMIT:-5g}
+    memswap_limit: ${QWEN3_MEMORY_LIMIT:-5g}
+
+    networks:
+      - openclaw-network
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
     logging:
       driver: "json-file"

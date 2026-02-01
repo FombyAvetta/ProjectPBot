@@ -42,6 +42,58 @@ cd openclaw
 # Same menu, select option 2
 ```
 
+## 🤖 Option: Local LLM with Qwen3 4B (Optional)
+
+Want to run a local LLM for offline, private inference? Deploy Qwen3 4B!
+
+### Quick Setup (30-60 minutes)
+```bash
+ssh john@192.168.50.69
+cd openclaw
+./scripts/05-qwen3-setup.sh
+```
+
+**Interactive menu:**
+1. Download Model (~2.5GB, 30-60 min)
+2. Build Service (one-time, 20-30 min)
+3. Enable Qwen3 (start service)
+5. Test API (verify it works)
+
+### Use Qwen3 as Primary LLM
+```bash
+# Edit .env
+nano ~/openclaw/.env
+
+# Set provider
+LLM_PROVIDER=qwen3
+
+# Restart
+docker compose restart
+```
+
+### Performance
+- **Speed**: 10-15 tokens/second
+- **Memory**: ~2.8-3.5GB (leave 4GB+ free)
+- **Cost**: Free after setup
+- **Privacy**: Complete offline operation
+
+### Quick Commands
+```bash
+# Enable Qwen3
+./scripts/06-maintenance.sh  # Option 17
+
+# Disable Qwen3 (free memory)
+./scripts/06-maintenance.sh  # Option 18
+
+# Check status
+./scripts/06-maintenance.sh  # Option 19
+
+# Run benchmark
+./scripts/07-benchmark-qwen3.sh
+```
+
+**Full Guide:** [QWEN3-GUIDE.md](QWEN3-GUIDE.md)
+
 ## 📊 Common Commands
 
 ### Check Status

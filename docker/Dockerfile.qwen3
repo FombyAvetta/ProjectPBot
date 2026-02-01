@@ -1,0 +1,110 @@
+# =============================================================================
+# Qwen3 4B GGUF Server Dockerfile for NVIDIA Jetson Nano 8GB
+# =============================================================================
+# Multi-stage build for llama.cpp with CUDA acceleration
+# Target: JetPack 6.x (R36.4.4), ARMv8, CUDA Compute Capability 5.3
+# Final image size: ~2GB
+# =============================================================================
+
+# =============================================================================
+# Stage 1: Builder - Compile llama.cpp with CUDA support
+# =============================================================================
+FROM nvcr.io/nvidia/l4t-jetpack:r36.4.0 AS builder
+
+# Set build arguments
+ARG LLAMA_CPP_VERSION=b4180
+ARG CMAKE_VERSION=3.30.2
+ARG CUDA_DOCKER_ARCH=53
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    wget \
+    git \
+    cmake \
+    ninja-build \
+    libcurl4-openssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /build
+
+# Clone llama.cpp repository
+RUN git clone https://github.com/ggerganov/llama.cpp.git && \
+    cd llama.cpp && \
+    git checkout ${LLAMA_CPP_VERSION}
+
+# Build llama.cpp with CUDA support
+# - GGML_CUDA=ON: Enable NVIDIA CUDA acceleration
+# - CUDA_DOCKER_ARCH=53: Jetson Nano GPU compute capability
+# - GGML_CUDA_F16=ON: Use FP16 for better performance
+# - LLAMA_CURL=ON: Enable HTTP model loading support
+# - CMAKE_BUILD_TYPE=Release: Optimized binary
+WORKDIR /build/llama.cpp
+RUN cmake -B build \
+    -G Ninja \
+    -DGGML_CUDA=ON \
+    -DCUDA_DOCKER_ARCH=${CUDA_DOCKER_ARCH} \
+    -DGGML_CUDA_F16=ON \
+    -DLLAMA_CURL=ON \
+    -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build build --config Release --target llama-server -j$(nproc)
+
+# Verify binary was built
+RUN test -f /build/llama.cpp/build/bin/llama-server || \
+    (echo "ERROR: llama-server binary not found after build!" && exit 1)
+
+# =============================================================================
+# Stage 2: Runtime - Lean production image
+# =============================================================================
+FROM nvcr.io/nvidia/l4t-jetpack:r36.4.0 AS runtime
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    libcurl4 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN groupadd -r qwen3 && useradd -r -g qwen3 -u 1000 qwen3
+
+# Create necessary directories
+RUN mkdir -p /app /models /app/logs && \
+    chown -R qwen3:qwen3 /app /models /app/logs
+
+# Copy compiled binary from builder stage
+COPY --from=builder --chown=qwen3:qwen3 /build/llama.cpp/build/bin/llama-server /app/llama-server
+
+# Copy entrypoint script
+COPY --chown=qwen3:qwen3 docker-entrypoint-qwen3.sh /app/docker-entrypoint-qwen3.sh
+RUN chmod +x /app/docker-entrypoint-qwen3.sh
+
+# Set working directory
+WORKDIR /app
+
+# Switch to non-root user
+USER qwen3
+
+# Environment variables with defaults
+ENV MODEL_PATH=/models/Qwen3-4B-Q4_K_M.gguf \
+    CONTEXT_LENGTH=2048 \
+    GPU_LAYERS=32 \
+    BATCH_SIZE=512 \
+    THREADS=4 \
+    PARALLEL_REQUESTS=1 \
+    HOST=0.0.0.0 \
+    PORT=8080 \
+    TIMEOUT=600
+
+# Expose API port (internal only)
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Set entrypoint
+ENTRYPOINT ["/app/docker-entrypoint-qwen3.sh"]

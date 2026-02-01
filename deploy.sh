@@ -212,6 +212,44 @@ start_services() {
     fi
 }
 
+# Setup Qwen3 (optional)
+setup_qwen3() {
+    print_step "Qwen3 Local LLM Setup (Optional)"
+
+    echo ""
+    echo "Qwen3 4B provides local, offline LLM inference on your Jetson Nano."
+    echo ""
+    echo "Features:"
+    echo "  • Completely offline operation"
+    echo "  • Free after initial setup"
+    echo "  • ~2.5GB model download required"
+    echo "  • ~20-30 minute one-time build"
+    echo "  • 10-15 tokens/sec generation speed"
+    echo ""
+    echo "Requirements:"
+    echo "  • ~5GB disk space (model + Docker image)"
+    echo "  • ~3-4GB available RAM when running"
+    echo ""
+
+    read -p "Setup Qwen3 4B now? (y/n): " qwen3_choice
+
+    if [[ "$qwen3_choice" == "y" || "$qwen3_choice" == "Y" ]]; then
+        print_step "Launching Qwen3 setup script..."
+        print_warning "This will open an interactive menu on the Jetson"
+
+        ssh -t "${JETSON_ADDR}" "cd ~/${REMOTE_DIR} && ./scripts/05-qwen3-setup.sh"
+
+        print_success "Qwen3 setup complete"
+    else
+        print_warning "Skipping Qwen3 setup"
+        echo ""
+        echo "You can set up Qwen3 later by running:"
+        echo "  ssh ${JETSON_ADDR}"
+        echo "  cd ${REMOTE_DIR}"
+        echo "  ./scripts/05-qwen3-setup.sh"
+    fi
+}
+
 # Check deployment status
 check_status() {
     print_step "Checking deployment status..."
@@ -260,6 +298,11 @@ show_instructions() {
     echo "   cd ${REMOTE_DIR}"
     echo "   ./scripts/06-maintenance.sh"
     echo ""
+    echo "5. Qwen3 Local LLM (optional):"
+    echo "   ssh ${JETSON_ADDR}"
+    echo "   cd ${REMOTE_DIR}"
+    echo "   ./scripts/05-qwen3-setup.sh"
+    echo ""
     echo "Useful commands:"
     echo "  View status:  ssh ${JETSON_ADDR} 'cd ${REMOTE_DIR} && docker-compose ps'"
     echo "  View logs:    ssh ${JETSON_ADDR} 'cd ${REMOTE_DIR} && docker-compose logs -f'"
@@ -291,6 +334,7 @@ main() {
     build_openclaw
     configure_environment
     start_services
+    setup_qwen3
     check_status
     show_instructions
 }

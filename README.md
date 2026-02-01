@@ -92,14 +92,19 @@ ProjectPBot/
 │   ├── 02-docker-install.sh      # Docker installation
 │   ├── 03-openclaw-build.sh      # OpenClaw build
 │   ├── 04-configure-channels.sh  # Channel configuration
-│   └── 06-maintenance.sh         # Maintenance utilities
+│   ├── 05-qwen3-setup.sh         # Qwen3 local LLM setup
+│   ├── 06-maintenance.sh         # Maintenance utilities
+│   └── 07-benchmark-qwen3.sh     # Qwen3 performance testing
 ├── docker/
 │   ├── Dockerfile                # ARM64-optimized container
+│   ├── Dockerfile.qwen3          # Qwen3 service container
 │   ├── docker-compose.yml        # Service definitions
 │   ├── docker-entrypoint.sh      # Container entrypoint
+│   ├── docker-entrypoint-qwen3.sh # Qwen3 entrypoint
 │   └── .env.example              # Environment template
 ├── deploy.sh                     # Master deployment script
-└── README.md                     # This file
+├── README.md                     # This file
+└── QWEN3-GUIDE.md                # Comprehensive Qwen3 guide
 ```
 
 ## Scripts Reference
@@ -210,10 +215,11 @@ Edit `.env` on the Jetson to configure:
 - `GATEWAY_HOST` - Bind address (default: 0.0.0.0)
 
 #### LLM Provider
-- `LLM_PROVIDER` - anthropic, openai, or ollama
+- `LLM_PROVIDER` - anthropic, openai, ollama, or qwen3
 - `ANTHROPIC_API_KEY` - Claude API key
 - `OPENAI_API_KEY` - OpenAI API key (optional)
 - `OLLAMA_HOST` - Ollama host for local models (optional)
+- `QWEN3_HOST` - Qwen3 local LLM host (optional, see Qwen3 section)
 
 #### Channels
 - `TELEGRAM_BOT_TOKEN` - Telegram bot token
@@ -244,6 +250,159 @@ ARM64-optimized container based on NVIDIA L4T:
 - OpenClaw dependencies
 - CUDA support
 - Health checks
+
+## Local LLM with Qwen3 4B
+
+### Overview
+
+Qwen3 4B provides local, offline LLM inference on your Jetson Nano 8GB. This optional component gives you:
+
+- **Completely offline operation** - No internet required for inference
+- **Privacy** - All data stays on your device
+- **Cost-effective** - Free after initial setup (no API fees)
+- **Performance** - 10-15 tokens/second generation speed
+- **Memory** - ~2.5GB model size, 2.8-3.5GB runtime memory
+
+### Quick Setup
+
+```bash
+ssh john@192.168.50.69
+cd openclaw
+./scripts/05-qwen3-setup.sh
+```
+
+Interactive menu options:
+1. **Download Model** - Download Qwen3 4B Q4_K_M GGUF (~2.5GB, 30-60 min)
+2. **Build Service** - Build Docker image with llama.cpp (~20-30 min, one-time)
+3. **Enable Qwen3** - Start the service
+4. **Disable Qwen3** - Stop the service and free memory
+5. **Test API** - Send test prompt and measure performance
+6. **Configure Settings** - Tune performance parameters
+7. **View Status** - Show current state and resource usage
+
+### Using Qwen3 with OpenClaw
+
+After setup, configure OpenClaw to use Qwen3:
+
+```bash
+# Edit .env file
+nano ~/openclaw/.env
+
+# Set LLM provider to qwen3
+LLM_PROVIDER=qwen3
+
+# Restart OpenClaw
+docker compose restart gateway
+```
+
+Now all OpenClaw requests will use local Qwen3!
+
+### Performance Profiles
+
+Choose based on your needs:
+
+**Profile 1: Minimal Memory (Stable)**
+```bash
+QWEN3_CONTEXT_LENGTH=1024
+QWEN3_GPU_LAYERS=24
+QWEN3_BATCH_SIZE=256
+```
+- Memory: ~2.2GB
+- Speed: ~8-10 tok/s
+- Best for: Running alongside other services
+
+**Profile 2: Balanced (Recommended)**
+```bash
+QWEN3_CONTEXT_LENGTH=2048
+QWEN3_GPU_LAYERS=32
+QWEN3_BATCH_SIZE=512
+```
+- Memory: ~2.8GB
+- Speed: ~10-12 tok/s
+- Best for: Most use cases
+
+**Profile 3: Maximum Performance**
+```bash
+QWEN3_CONTEXT_LENGTH=4096
+QWEN3_GPU_LAYERS=99
+QWEN3_BATCH_SIZE=1024
+```
+- Memory: ~4.5GB
+- Speed: ~12-15 tok/s
+- Best for: Dedicated Qwen3 use (risky on 8GB)
+
+### Management Commands
+
+**Enable/Disable via maintenance menu:**
+```bash
+./scripts/06-maintenance.sh
+# Option 17: Enable Qwen3 Service
+# Option 18: Disable Qwen3 Service
+# Option 19: Qwen3 Status & Diagnostics
+# Option 20: Qwen3 Performance Test
+```
+
+**Run performance benchmark:**
+```bash
+./scripts/07-benchmark-qwen3.sh
+```
+
+Measures:
+- Cold start time
+- First token latency
+- Generation speed (tokens/sec)
+- Context length scaling
+- Memory usage under load
+- Overall performance score
+
+### When to Use Qwen3 vs Cloud LLMs
+
+**Use Qwen3 for:**
+- Privacy-sensitive tasks
+- Offline/unreliable internet environments
+- High-volume, simple tasks (summaries, Q&A, etc.)
+- Development and testing
+- Cost optimization
+
+**Use Claude/GPT-4 for:**
+- Complex reasoning tasks
+- Long context (> 4K tokens)
+- Latest information/knowledge
+- Production critical paths
+- Specialized domains
+
+### Memory Considerations
+
+**Safe Operating Ranges:**
+- \> 4GB free: Can run any profile
+- 3-4GB free: Use Profile 2 (Balanced)
+- 2-3GB free: Use Profile 1 (Minimal)
+- < 2GB free: Don't enable Qwen3
+
+**Monitor memory:**
+```bash
+# Real-time monitoring
+free -h
+
+# Container stats
+docker stats openclaw-qwen3
+
+# Jetson-specific
+tegrastats
+```
+
+### Comprehensive Guide
+
+For detailed documentation including:
+- Installation and configuration
+- Performance tuning strategies
+- Context length vs memory tradeoffs
+- GPU layer optimization
+- Troubleshooting common issues
+- Comparison with cloud LLMs
+- Advanced topics
+
+See: **[QWEN3-GUIDE.md](QWEN3-GUIDE.md)**
 
 ## Usage
 

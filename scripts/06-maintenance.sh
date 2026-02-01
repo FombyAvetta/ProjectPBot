@@ -62,6 +62,12 @@ show_menu() {
     echo "  14) Reset to Factory Settings"
     echo "  15) View Docker Info"
     echo ""
+    echo "Qwen3 Local LLM:"
+    echo "  17) Enable Qwen3 Service"
+    echo "  18) Disable Qwen3 Service"
+    echo "  19) Qwen3 Status & Diagnostics"
+    echo "  20) Qwen3 Performance Test"
+    echo ""
     echo "16) Exit"
     echo ""
 }
@@ -386,6 +392,231 @@ view_docker_info() {
     docker info
 }
 
+# Function to enable Qwen3
+enable_qwen3() {
+    echo ""
+    echo -e "${BLUE}=== Enable Qwen3 Service ===${NC}"
+    echo ""
+
+    # Check if setup script exists
+    if [ ! -f "$OPENCLAW_DIR/scripts/05-qwen3-setup.sh" ]; then
+        echo -e "${RED}Qwen3 setup script not found${NC}"
+        echo "Expected: $OPENCLAW_DIR/scripts/05-qwen3-setup.sh"
+        return
+    fi
+
+    # Check if model exists
+    if [ ! -f "$OPENCLAW_DIR/models/Qwen3-4B-Q4_K_M.gguf" ]; then
+        echo -e "${YELLOW}Model not found. Please run Qwen3 setup first:${NC}"
+        echo "$OPENCLAW_DIR/scripts/05-qwen3-setup.sh"
+        return
+    fi
+
+    # Check available memory
+    free_mem_kb=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+    free_mem_gb=$((free_mem_kb / 1024 / 1024))
+    echo "Available memory: ~${free_mem_gb}GB"
+
+    if [ ${free_mem_gb} -lt 3 ]; then
+        echo -e "${YELLOW}WARNING: Low memory (< 3GB available)${NC}"
+        echo "Qwen3 requires ~2.8-3.5GB. Consider stopping other services."
+        read -p "Continue? (y/n): " confirm
+        if [[ "$confirm" != "y" ]]; then
+            echo "Cancelled"
+            return
+        fi
+    fi
+
+    echo "Starting Qwen3 service..."
+    cd "$OPENCLAW_DIR"
+    docker-compose --profile qwen3 up -d qwen3-server
+
+    echo ""
+    echo -e "${GREEN}✓ Qwen3 service enabled${NC}"
+    echo "API: http://localhost:8080/v1/chat/completions"
+    echo "Set LLM_PROVIDER=qwen3 to use it in OpenClaw"
+}
+
+# Function to disable Qwen3
+disable_qwen3() {
+    echo ""
+    echo -e "${BLUE}=== Disable Qwen3 Service ===${NC}"
+    echo ""
+
+    if ! docker ps --format '{{.Names}}' | grep -q "openclaw-qwen3"; then
+        echo -e "${YELLOW}Qwen3 service is not running${NC}"
+        return
+    fi
+
+    echo "Stopping Qwen3 service..."
+    cd "$OPENCLAW_DIR"
+    docker-compose stop qwen3-server
+
+    echo ""
+    echo -e "${GREEN}✓ Qwen3 service disabled${NC}"
+    echo "Memory freed: ~2.8-3.5GB"
+
+    free_mem_kb=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+    free_mem_gb=$((free_mem_kb / 1024 / 1024))
+    echo "Available memory now: ~${free_mem_gb}GB"
+}
+
+# Function to show Qwen3 status and diagnostics
+qwen3_status() {
+    echo ""
+    echo -e "${BLUE}=== Qwen3 Status & Diagnostics ===${NC}"
+    echo ""
+
+    # Service status
+    echo "--- Service Status ---"
+    if docker ps --format '{{.Names}}' | grep -q "openclaw-qwen3"; then
+        echo -e "${GREEN}✓ Running${NC}"
+        echo ""
+        docker ps --filter "name=openclaw-qwen3" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    else
+        echo -e "${YELLOW}Not Running${NC}"
+    fi
+
+    echo ""
+    echo "--- Model Status ---"
+    if [ -f "$OPENCLAW_DIR/models/Qwen3-4B-Q4_K_M.gguf" ]; then
+        model_size=$(du -h "$OPENCLAW_DIR/models/Qwen3-4B-Q4_K_M.gguf" | cut -f1)
+        echo -e "${GREEN}✓ Downloaded (${model_size})${NC}"
+    else
+        echo -e "${YELLOW}Not Downloaded${NC}"
+    fi
+
+    echo ""
+    echo "--- Docker Image ---"
+    if docker images openclaw-qwen3:latest --format "{{.Repository}}" | grep -q "openclaw-qwen3"; then
+        image_size=$(docker images openclaw-qwen3:latest --format "{{.Size}}")
+        echo -e "${GREEN}✓ Built (${image_size})${NC}"
+    else
+        echo -e "${YELLOW}Not Built${NC}"
+    fi
+
+    # Resource usage if running
+    if docker ps --format '{{.Names}}' | grep -q "openclaw-qwen3"; then
+        echo ""
+        echo "--- Resource Usage ---"
+        docker stats openclaw-qwen3 --no-stream --format "CPU: {{.CPUPerc}}  Memory: {{.MemUsage}}"
+
+        echo ""
+        echo "--- Health Check ---"
+        health=$(docker inspect --format='{{.State.Health.Status}}' openclaw-qwen3 2>/dev/null || echo "unknown")
+        if [ "$health" = "healthy" ]; then
+            echo -e "${GREEN}✓ Healthy${NC}"
+        else
+            echo -e "${YELLOW}Status: ${health}${NC}"
+        fi
+
+        echo ""
+        echo "--- API Test ---"
+        if curl -s http://localhost:8080/health > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ API responding${NC}"
+        else
+            echo -e "${RED}✗ API not responding${NC}"
+        fi
+
+        echo ""
+        echo "--- Recent Logs (last 15 lines) ---"
+        docker logs openclaw-qwen3 --tail=15
+    fi
+
+    echo ""
+    echo "--- Configuration ---"
+    if [ -f "$OPENCLAW_DIR/.env" ]; then
+        echo "Context Length: $(grep QWEN3_CONTEXT_LENGTH $OPENCLAW_DIR/.env | cut -d'=' -f2 || echo '2048')"
+        echo "GPU Layers: $(grep QWEN3_GPU_LAYERS $OPENCLAW_DIR/.env | cut -d'=' -f2 || echo '32')"
+        echo "Batch Size: $(grep QWEN3_BATCH_SIZE $OPENCLAW_DIR/.env | cut -d'=' -f2 || echo '512')"
+    fi
+
+    echo ""
+    echo "--- Memory Warning ---"
+    free_mem_kb=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+    free_mem_gb=$((free_mem_kb / 1024 / 1024))
+    used_mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    used_mem_kb=$((used_mem_kb - free_mem_kb))
+    used_mem_gb=$((used_mem_kb / 1024 / 1024))
+    total_mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    total_mem_gb=$((total_mem_kb / 1024 / 1024))
+    usage_pct=$((used_mem_gb * 100 / total_mem_gb))
+
+    echo "Total Memory: ${total_mem_gb}GB"
+    echo "Used Memory: ${used_mem_gb}GB"
+    echo "Available: ${free_mem_gb}GB"
+    echo "Usage: ${usage_pct}%"
+
+    if [ ${usage_pct} -gt 90 ]; then
+        echo -e "${RED}⚠ WARNING: Memory usage > 90%!${NC}"
+        echo "Consider disabling Qwen3 or other services"
+    elif [ ${usage_pct} -gt 80 ]; then
+        echo -e "${YELLOW}⚠ Caution: Memory usage > 80%${NC}"
+    fi
+}
+
+# Function to run Qwen3 performance test
+qwen3_performance_test() {
+    echo ""
+    echo -e "${BLUE}=== Qwen3 Performance Test ===${NC}"
+    echo ""
+
+    if ! docker ps --format '{{.Names}}' | grep -q "openclaw-qwen3"; then
+        echo -e "${RED}Qwen3 service is not running${NC}"
+        echo "Enable it first (Option 17)"
+        return
+    fi
+
+    echo "Running performance test..."
+    echo ""
+
+    # Test 1: Simple prompt
+    echo "Test 1: Simple prompt (50 tokens)"
+    start_time=$(date +%s%3N)
+    response=$(curl -s -X POST http://localhost:8080/v1/chat/completions \
+        -H "Content-Type: application/json" \
+        -d '{
+            "model": "qwen3-4b",
+            "messages": [{"role": "user", "content": "Count from 1 to 10"}],
+            "max_tokens": 50,
+            "temperature": 0.7
+        }')
+    end_time=$(date +%s%3N)
+
+    if echo "$response" | jq -e '.choices[0].message.content' > /dev/null 2>&1; then
+        duration=$((end_time - start_time))
+        tokens=$(echo "$response" | jq -r '.usage.completion_tokens // 0')
+        if [ "$tokens" -gt 0 ]; then
+            tokens_per_sec=$((tokens * 1000 / duration))
+            echo -e "${GREEN}✓ Success${NC}"
+            echo "  Time: ${duration}ms"
+            echo "  Tokens: ${tokens}"
+            echo "  Speed: ${tokens_per_sec} tok/s"
+        else
+            echo -e "${YELLOW}⚠ No tokens generated${NC}"
+        fi
+    else
+        echo -e "${RED}✗ Failed${NC}"
+    fi
+
+    echo ""
+
+    # Test 2: Health check latency
+    echo "Test 2: API Health Check Latency"
+    health_time=$(curl -o /dev/null -s -w '%{time_total}' http://localhost:8080/health)
+    health_time_ms=$(echo "$health_time * 1000" | bc)
+    echo "  Latency: ${health_time_ms}ms"
+
+    echo ""
+    echo "--- Performance Summary ---"
+    echo "Expected on Jetson Nano 8GB:"
+    echo "  Speed: 10-15 tok/s (GPU), 2-3 tok/s (CPU)"
+    echo "  Latency: < 500ms first token"
+    echo ""
+    echo "For detailed benchmarking, use:"
+    echo "  $OPENCLAW_DIR/scripts/07-benchmark-qwen3.sh"
+}
+
 # Main loop
 while true; do
     show_menu
@@ -407,6 +638,10 @@ while true; do
         13) run_diagnostics ;;
         14) reset_factory ;;
         15) view_docker_info ;;
+        17) enable_qwen3 ;;
+        18) disable_qwen3 ;;
+        19) qwen3_status ;;
+        20) qwen3_performance_test ;;
         16)
             echo ""
             echo "Exiting..."
